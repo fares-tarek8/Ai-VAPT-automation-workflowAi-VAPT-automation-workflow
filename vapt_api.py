@@ -6,6 +6,8 @@ from scope_manager import validate_target, ScopeError
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 from openai import OpenAI
+from nmap_skill import nmap_discovery
+from fastapi.responses import PlainTextResponse
 
 app = FastAPI(title="AI-Assisted VAPT API")
 
@@ -147,3 +149,54 @@ Do not omit required keys. Return valid JSON only.
             status_code=502,
             detail="AI analysis request failed",
         ) from exc
+
+class NmapScanRequest(BaseModel):
+    target: str
+    authorized: bool
+
+
+@app.post("/scan")
+def scan(
+    request: NmapScanRequest,
+    x_team_key: str = Header(default=""),
+):
+    # Check team authentication
+    if not hmac.compare_digest(x_team_key, TEAM_API_KEY):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Check authorization declaration
+    if not request.authorized:
+        raise HTTPException(status_code=403, detail="Authorization required")
+
+    try:
+        result = nmap_discovery(request.target)
+        return {
+            **result,
+            "execution_performed": True,
+        }
+    except ScopeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Nmap execution failed",
+        ) from exc
+
+@app.post("/scan-text", response_class=PlainTextResponse)
+def scan_text(
+    request: NmapScanRequest,
+    x_team_key: str = Header(default=""),
+):
+    if not hmac.compare_digest(x_team_key, TEAM_API_KEY):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    if not request.authorized:
+        raise HTTPException(status_code=403, detail="Authorization required")
+
+    try:
+        result = nmap_discovery(request.target)
+        return result["scan_output"]
+    except ScopeError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail="Nmap execution failed") from exc
