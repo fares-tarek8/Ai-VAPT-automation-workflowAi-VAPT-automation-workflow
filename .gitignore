@@ -1,5 +1,21 @@
+# Python environment and cache
 .venv/
 __pycache__/
 *.py[cod]
+
+# Secrets and environment files
 .env
+.env.*
+!.env.example
+
+# Logs
 *.log
+
+# Local editor settings
+.vscode/
+
+# Local backups
+*.backup
+*.before_cleanup
+*.pre_scope_integration
+*.verified_backup
