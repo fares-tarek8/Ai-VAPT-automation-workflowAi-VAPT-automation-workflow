@@ -19,3 +19,4 @@ __pycache__/
 *.before_cleanup
 *.pre_scope_integration
 *.verified_backup
+vapt_api_backup.py

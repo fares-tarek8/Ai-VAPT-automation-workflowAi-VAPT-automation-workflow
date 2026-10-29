@@ -1,5 +1,7 @@
 import os
+import urllib3
 import hmac
+import requests
 import json
 from typing import Literal
 from scope_manager import validate_target, ScopeError
@@ -8,7 +10,7 @@ from pydantic import BaseModel, Field
 from openai import OpenAI
 from nmap_skill import nmap_discovery
 from fastapi.responses import PlainTextResponse
-
+from http_enum_skill import http_enumeration
 app = FastAPI(title="AI-Assisted VAPT API")
 
 MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"
@@ -154,6 +156,10 @@ class NmapScanRequest(BaseModel):
     target: str
     authorized: bool
 
+class HttpEnumRequest(BaseModel):
+    target: str
+    authorized: bool
+    protocol: Literal["http", "https"] = "https"
 
 @app.post("/scan")
 def scan(
@@ -200,3 +206,34 @@ def scan_text(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail="Nmap execution failed") from exc
+
+@app.post("/http-enum")
+def http_enum(
+    request: HttpEnumRequest,
+    x_team_key: str = Header(default=""),
+):
+    # 1. Check team API key
+    if not hmac.compare_digest(x_team_key, TEAM_API_KEY):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # 2. Check caller authorization
+    if not request.authorized:
+        raise HTTPException(status_code=403, detail="Authorization required")
+
+    try:
+        # 3. Execute HTTP enumeration
+        return http_enumeration(
+            request.target,
+            protocol=request.protocol
+)
+
+    except ScopeError as exc:
+        # 4. Reject out-of-scope targets
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    except (requests.RequestException, urllib3.exceptions.HTTPError) as exc:
+        # 5. Handle HTTP connection errors
+        raise HTTPException(
+            status_code=502,
+            detail="HTTP enumeration failed"
+        ) from exc

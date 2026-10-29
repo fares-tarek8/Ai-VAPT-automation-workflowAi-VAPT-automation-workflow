@@ -1,4 +1,5 @@
 import subprocess
+import re
 from scope_manager import validate_target
 
 
@@ -15,15 +16,16 @@ def nmap_discovery(target):
         [
             "nmap",
             "-sT",
+            "-sV",
             "-Pn",
             "-p", "22,80,443",
             "--max-retries", "1",
-            "--host-timeout", "30s",
+            "--host-timeout", "60s",
             target
         ],
         capture_output=True,
         text=True,
-        timeout=40,
+        timeout=70,
         check=False
     )
 
@@ -33,9 +35,25 @@ def nmap_discovery(target):
             f"Nmap failed: {result.stderr}"
         )
 
+
+    # Remove unnecessary Nmap information
+    clean_output = result.stdout
+
+    clean_output = re.sub(
+        r" \( https://nmap\.org \)",
+        "",
+        clean_output
+    )
+
+    clean_output = re.sub(
+        r"Service detection performed\..*",
+        "",
+        clean_output
+    )
+
     # Step 4: Return the scan results
     return {
         "target": target,
         "scope": scope,
-        "scan_output": result.stdout
+        "scan_output": clean_output.strip()
     }

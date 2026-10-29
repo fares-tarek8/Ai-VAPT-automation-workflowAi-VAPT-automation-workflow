@@ -1,4 +1,5 @@
 import ipaddress
+import socket
 import os
 from typing import Literal
 
@@ -35,6 +36,78 @@ def get_allowed_networks():
 
     return networks
 
+def get_allowed_hosts():
+    raw = os.environ.get("TARGET_HOST_ALLOWLIST", "").strip()
+
+    if not raw:
+        return set()
+
+    return {
+        host.strip().lower().rstrip(".")
+        for host in raw.split(",")
+        if host.strip()
+    }
+
+def resolve_hostname(hostname):
+    try:
+        results = socket.getaddrinfo(
+            hostname,
+            None,
+            type=socket.SOCK_STREAM
+        )
+    except socket.gaierror as exc:
+        raise ScopeError(
+            f"DNS resolution failed for {hostname}"
+        ) from exc
+
+    addresses = {
+        str(ipaddress.ip_address(result[4][0]))
+        for result in results
+    }
+
+    if not addresses:
+        raise ScopeError("DNS returned no IP addresses.")
+
+    return sorted(addresses)
+
+
+def validate_resolved_ips(hostname, addresses):
+    if not addresses:
+        raise ScopeError("DNS returned no IP addresses.")
+
+    for ip in addresses:
+        address = ipaddress.ip_address(ip)
+
+        if not address.is_global:
+            raise ScopeError(
+                f"Hostname {hostname} resolves to a "
+                f"non-public IP address: {ip}"
+            )
+
+    return addresses
+
+
+def validate_hostname_destination(hostname):
+    hostname = hostname.strip().lower().rstrip(".")
+
+    if hostname not in get_allowed_hosts():
+        raise ScopeError(
+            f"Hostname {hostname} is outside the configured allowlist."
+        )
+
+    addresses = resolve_hostname(hostname)
+
+    validated_addresses = validate_resolved_ips(
+        hostname,
+        addresses
+    )
+
+    return {
+        "hostname": hostname,
+        "ip": validated_addresses[0]
+    }
+
+
 
 def validate_target(
     target: str,
@@ -56,12 +129,23 @@ def validate_target(
             f"Action '{action}' is not permitted in {mode} mode."
         )
 
+
+        target = target.strip().lower()
+
     try:
-        address = ipaddress.ip_address(target.strip())
-    except ValueError as exc:
+        address = ipaddress.ip_address(target)
+    except ValueError:
+        allowed_hosts = get_allowed_hosts()
+
+        if target not in allowed_hosts:
+            raise ScopeError(
+                f"Hostname {target} is outside the configured allowlist."
+            )
+
         raise ScopeError(
-            "Target must be a single IPv4 or IPv6 address."
-        ) from exc
+            "Hostname is authorized, but safe DNS and connection "
+            "validation is not implemented yet."
+        )
 
     networks = get_allowed_networks()
 
